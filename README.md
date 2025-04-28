@@ -2,12 +2,12 @@
 
 功能: 磁力搜索, 通过机器人帮你寻找 电影 或者 学习资料
 
-使用的磁力站: https://cili.site
+使用的磁力站: http://clm10.xyz/
 
 安装方式:
     
-    pip install nonebot_plugin_BitTorrent
-    nb plugin install nonebot_plugin_BitTorrent
+    ~~pip install nonebot_plugin_BitTorrent~~
+    ~~nb plugin install nonebot_plugin_BitTorrent~~
     Download Zip
     git clone https://github.com/Special-Week/nonebot_plugin_BitTorrent.git
 
