@@ -18,11 +18,11 @@ with contextlib.suppress(Exception):
         description="磁力搜索插件",
         usage="磁力搜索 xxx",
         type="application",
-        homepage="https://github.com/Special-Week/nonebot_plugin_BitTorrent",
+        homepage="https://github.com/Bearlele/nonebot_plugin_BitTorrent",
         supported_adapters=None,
         extra={
-            "author": "Special-Week",
-            "version": "0.0.21",
+            "author": "Special-Week & Bear_lele",
+            "version": "0.0.22",
             "priority": 10,
         },
     )

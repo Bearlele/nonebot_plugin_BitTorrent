@@ -1,20 +1,21 @@
-import asyncio
-import contextlib
-from typing import Any, Coroutine, List
+import re
+import base64
+import urllib.parse
+from typing import List
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 from httpx import AsyncClient
-from loguru import logger
+from nonebot import logger
 from nonebot.adapters.onebot.v11 import GroupMessageEvent
+from nonebot.adapters.onebot.v11.exception import ActionFailed
 from nonebot.internal.adapter import Bot, Event, Message
 from nonebot.matcher import Matcher
 from nonebot.params import CommandArg
 
 from .config import config
 
-
 class BitTorrent:
-    magnet_url = "https://cili.site"
+    BASE_URL = "http://clm10.xyz"
 
     async def main(
         self,
@@ -25,78 +26,122 @@ class BitTorrent:
     ) -> None:
         """主函数, 用于响应命令"""
 
-        print("开始搜索")
+        logger.info("开始搜索")
         keyword: str = msg.extract_plain_text()
         if not keyword:
             await matcher.finish("虚空搜索?来点车牌gkd")
         try:
-            data: List[str] = await self.get_items(keyword)
+            await bot.call_api("set_msg_emoji_like", message_id=event.message_id, emoji_id="314") # 思考表情
+            data = await self.get_items(keyword)
         except Exception as e:
             await matcher.finish("搜索失败, 下面是错误信息:\n" + repr(e))
         if not data:
             await matcher.finish("没有找到结果捏, 换个关键词试试吧")
-        # 如果开启了群消息转发, 且消息来自onebotv11的群消息
+        
+        tasks = await self.get_magnet(data) 
+
         if config.onebot_group_forward_msg and isinstance(event, GroupMessageEvent):
-            messages: List = [
+            messages = [
                 {
                     "type": "node",
                     "data": {
-                        "name": "bot",
+                        "name": "然然",
                         "uin": bot.self_id,
                         "content": i,
                     },
                 }
-                for i in data
+                for i in tasks
             ]
-            await bot.call_api(
-                "send_group_forward_msg", group_id=event.group_id, messages=messages
-            )
+            await bot.call_api("set_msg_emoji_like", message_id=event.message_id, emoji_id="314", set="false")
+            try:
+                await bot.send_group_forward_msg(group_id=event.group_id, message=messages)
+            except ActionFailed:
+                await matcher.finish("消息发送失败，账号可能被风控")
         else:
-            await matcher.finish("\n".join(data))
+            await matcher.finish("\n".join(tasks))
 
     async def get_items(self, keyword) -> List[str]:
-        search_url: str = f"{self.magnet_url}/search?q={keyword}"
+        # Base64编码
+        b64_keyword = base64.b64encode(keyword.encode()).decode().rstrip("=")
+        search_url = f"{self.BASE_URL}/search?word={b64_keyword}"
+        
         async with AsyncClient() as client:
-            try:
-                resp = await client.get(search_url)
-            except Exception as e:
-                logger.error(repr(e))
-                return [f"获取{search_url}失败， 错误信息：{repr(e)}"]
-        soup = BeautifulSoup(resp.text, "lxml")
-        tr = soup.find_all("tr")
-        if not tr:
+            resp = await client.get(search_url)
+        
+        # 提取base64加密串
+        m = re.search(r'atob\("([^"]+)"\)', resp.text)
+        if not m:
+            logger.info("未找到加密内容")
             return []
-        a_list: list[Any] = [i.find_all("a") for i in tr]
-        href_list: list[str] = [self.magnet_url + i[0].get("href") for i in a_list if i]
-        maxnum: int = min(len(href_list), config.magnet_max_num)
-        tasks: List[Coroutine] = [self.get_magnet(i) for i in href_list[:maxnum]]
-        return await asyncio.gather(*tasks)
+        encrypted_str = m.group(1)
 
-    async def get_magnet(self, search_url: str) -> str:
-        try:
+        # 解密
+        decoded = base64.b64decode(encrypted_str)
+        html = urllib.parse.unquote(decoded.decode())
+
+        # 用解密后的html解析
+        soup = BeautifulSoup(html, "lxml")
+        ul = soup.find("ul", id="Search_list_wrapper")
+        if not ul:
+            return []
+        
+        li_list = ul.find_all("li", limit=config.magnet_max_num)
+        hrefs = []
+        for li in li_list:
+            a_tag = li.find("a", class_="SearchListTitle_result_title")
+            if a_tag and a_tag.get("href"):
+                hrefs.append(self.BASE_URL + a_tag.get("href"))
+        
+        return hrefs
+
+    async def get_magnet(self, search_urls: str) -> str:
+        result = []
+    
+        for detail_url in search_urls:
             async with AsyncClient() as client:
-                resp = await client.get(search_url)
-            soup = BeautifulSoup(resp.text, "lxml")
-            dl = soup.find("dl", class_="dl-horizontal torrent-info col-sm-9")
-            h2 = soup.find("h2", class_="magnet-title")
-            if isinstance(dl, Tag) and isinstance(h2, Tag):
-                dt = dl.find_all("dt")
-                dd = dl.find_all("dd")
-                target: str = (
-                    f"标题 :: {h2.text}\n磁力链接 :: magnet:?xt=urn:btih:{dd[0].text}\n"
-                )
-                for i in range(1, min(len(dt), len(dd))):
-                    dt_temp: str = (dt[i].text).split("\n")[0]
-                    dd_temp: str = (dd[i].text).split("\n")[0]
-                    if not dd_temp:
-                        with contextlib.suppress(Exception):
-                            dd_temp = (dd[i].text).split("\n")[1]
-                    target += f"{dt_temp}: {dd_temp}\n"
-                logger.info(f"{target}\n====================================")
-                return target
-            return f"获取{search_url}失败"
-        except Exception as e:
-            return f"获取{search_url}失败， 错误信息：{repr(e)}"
+                resp = await client.get(detail_url)
+            
+            # 提取base64加密串
+            m = re.search(r'atob\("([^"]+)"\)', resp.text)
+            if not m:
+                logger.info(f"未找到加密内容: {detail_url}")
+                result.append(f"未找到加密内容: {detail_url}")
+                continue
+
+            encrypted_str = m.group(1)
+
+            # 解密
+            decoded = base64.b64decode(encrypted_str)
+            html = urllib.parse.unquote(decoded.decode())
+
+            # 用解密后的html解析
+            soup = BeautifulSoup(html, "lxml")
+
+            # 提取标题
+            title_tag = soup.find("h1", class_="Information_title")
+            title = title_tag.get_text() if title_tag else "未找到标题"
+            
+            # 提取磁力链接
+            magnet_input = soup.find("input", id="Information_copy_text")
+            magnet_link = magnet_input.get("value") if magnet_input else "未找到磁力链接"
+            
+            # 提取文件信息
+            info_block = soup.find("div", class_="Information_info_wrapper")
+            if info_block:
+                text = info_block.get_text()
+                file_count = "未知"
+                file_size = "未知"
+                if "文件数目：" in text:
+                    file_count = text.split("文件数目：")[1].split("个文件")[0].strip()
+                if "文件大小：" in text:
+                    file_size = text.split("文件大小：")[1].split("收录时间")[0].strip()
+            else:
+                file_count = "未知"
+                file_size = "未知"
+            
+            result.append(f"标题: {title}\n磁力链接: {magnet_link}\n文件数目: {file_count}个文件\n文件大小: {file_size}")
+        
+        return result
 
 
 # 实例化
