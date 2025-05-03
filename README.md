@@ -7,7 +7,7 @@
 安装方式:
     
     Download Zip
-    git clone https://github.com/Special-Week/nonebot_plugin_BitTorrent.git
+    git clone https://github.com/Bearlele/nonebot_plugin_BitTorrent.git
 
 env配置项:
 
