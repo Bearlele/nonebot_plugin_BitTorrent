@@ -6,8 +6,6 @@
 
 安装方式:
     
-    ~~pip install nonebot_plugin_BitTorrent~~
-    ~~nb plugin install nonebot_plugin_BitTorrent~~
     Download Zip
     git clone https://github.com/Special-Week/nonebot_plugin_BitTorrent.git
 

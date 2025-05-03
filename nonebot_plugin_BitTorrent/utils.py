@@ -6,9 +6,9 @@ from typing import List
 from bs4 import BeautifulSoup
 from httpx import AsyncClient
 from nonebot import logger
-from nonebot.adapters.onebot.v11 import GroupMessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Message, GroupMessageEvent
 from nonebot.adapters.onebot.v11.exception import ActionFailed
-from nonebot.internal.adapter import Bot, Event, Message
+from nonebot.internal.adapter import Event
 from nonebot.matcher import Matcher
 from nonebot.params import CommandArg
 
@@ -25,7 +25,7 @@ class BitTorrent:
         msg: Message = CommandArg(),
     ) -> None:
         """主函数, 用于响应命令"""
-
+        user_id = event.user_id
         logger.info("开始搜索")
         keyword: str = msg.extract_plain_text()
         if not keyword:
@@ -45,8 +45,8 @@ class BitTorrent:
                 {
                     "type": "node",
                     "data": {
-                        "name": "然然",
-                        "uin": bot.self_id,
+                        "name": "搜索结果",
+                        "uin": user_id,
                         "content": i,
                     },
                 }
@@ -54,7 +54,7 @@ class BitTorrent:
             ]
             await bot.call_api("set_msg_emoji_like", message_id=event.message_id, emoji_id="314", set="false")
             try:
-                await bot.send_group_forward_msg(group_id=event.group_id, message=messages)
+                await bot.call_api("send_group_forward_msg", group_id=event.group_id, message=messages)
             except ActionFailed:
                 await matcher.finish("消息发送失败，账号可能被风控")
         else:
@@ -62,7 +62,7 @@ class BitTorrent:
 
     async def get_items(self, keyword) -> List[str]:
         # Base64编码
-        b64_keyword = base64.b64encode(keyword.encode()).decode().rstrip("=")
+        b64_keyword = base64.b64encode(keyword.encode()).decode().rstrip("=").replace("+", "-")
         search_url = f"{self.BASE_URL}/search?word={b64_keyword}"
         
         async with AsyncClient() as client:
